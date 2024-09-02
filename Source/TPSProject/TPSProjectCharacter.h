@@ -10,55 +10,61 @@
 
 #include "TPSProjectCharacter.generated.h"
 
-class USpringArmComponent;
-class UCameraComponent;
 
-class UInputMappingContext;
-class UInputAction;
-
-UCLASS()
+UCLASS(config=Game)
 class ATPSProjectCharacter : public ACharacter
 {
 	GENERATED_BODY()
 
+	/** Camera boom positioning the camera behind the character */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+	class USpringArmComponent* CameraBoom;
+
+	/** Follow camera */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+	class UCameraComponent* FollowCamera;
+	
+	/** MappingContext */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputMappingContext* DefaultMappingContext;
+
+	/** Jump Input Action */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputAction* JumpAction;
+
+	/** Move Input Action */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputAction* MoveAction;
+
+	/** Look Input Action */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputAction* LookAction;
+
 public:
-	// Sets default values for this character's properties
 	ATPSProjectCharacter();
-	virtual void Tick(float DeltaTime) override;
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-	virtual void Jump() override;
+	
 
 protected:
-	// Called when the game starts or when spawned
-	virtual void BeginPlay() override;
 
-	UPROPERTY(EditAnywhere, Category = Input)
-	UInputMappingContext* IMContext;
-
-	UPROPERTY(EditAnywhere, Category = Input)
-	UInputAction* MovementAction;
-
-	UPROPERTY(EditAnywhere, Category = Input)
-	UInputAction* LookAction;
-
-	UPROPERTY(EditAnywhere, Category = Input)
-	UInputAction* JumpAction;
-
-	UPROPERTY(EditAnywhere, Category = Input)
-	UInputAction* SprintAction;
-
-	void Turn(float Value);
+	/** Called for movement input */
 	void Move(const FInputActionValue& Value);
+
+	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
-	void StartSprint(const FInputActionValue& Value);
-	void EndSprint(const FInputActionValue& Value);
+			
 
-private:
-	UPROPERTY(VisibleAnywhere)
-	USpringArmComponent* SpringArmComponent;
+protected:
+	// APawn interface
+	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	
+	// To add mapping context
+	virtual void BeginPlay();
 
-	UPROPERTY(VisibleAnywhere)
-	UCameraComponent* CameraCompoennt;
+public:
+	/** Returns CameraBoom subobject **/
+	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
+	/** Returns FollowCamera subobject **/
+	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
 public:
 

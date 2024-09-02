@@ -5,8 +5,9 @@
 #include "Characters/PlayerCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
-
+#include "TPSProject/Public/Weapons/Weapon.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "TPSProject/Public/Types/CombatState.h"
 
 // Initialize Animtation In cpp
 void UPlayerCharacterAnimInstance::NativeInitializeAnimation()
@@ -29,12 +30,71 @@ void UPlayerCharacterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 {
 	Super::NativeUpdateAnimation(DeltaTime);
 
-	if (PlayerCharacterMovementComponent)
+	if (PlayerCharacterMovementComponent == nullptr)
 	{
-		GroundSpeed = UKismetMathLibrary::VSizeXY(PlayerCharacterMovementComponent->Velocity);
-
-		IsFalling = PlayerCharacterMovementComponent->IsFalling();
+		return;
 	}
+
+	GroundSpeed = UKismetMathLibrary::VSizeXY(PlayerCharacterMovementComponent->Velocity);
+
+	IsFalling = PlayerCharacterMovementComponent->IsFalling();
+	bWeaponEquipped = PlayerCharacter->IsWeaponEquipped();
+	EquippedWeapon = PlayerCharacter->GetEquippedWeapon();
+	bIsCrouched = PlayerCharacter->bIsCrouched;
+	IsSprinting = PlayerCharacter->IsSprinting();
+	bAiming = PlayerCharacter->IsAiming();
+	TurningInPlace = PlayerCharacter->GetTurningInPlace();
+	bRotateRootBone = PlayerCharacter->ShouldRotateRootBone();
+
+	//YawOffset 구하기
+	FRotator AimRotation = PlayerCharacter->GetBaseAimRotation();
+	FRotator MovementRotation = UKismetMathLibrary::MakeRotFromX(PlayerCharacter->GetVelocity());
+	FRotator DeltaRot = UKismetMathLibrary::NormalizedDeltaRotator(MovementRotation, AimRotation);
+	DeltaRotation = FMath::RInterpTo(DeltaRotation, DeltaRot, DeltaTime, 6.f);
+	YawOffset = DeltaRotation.Yaw;
+
+	//Lean 값 구하기
+	CharacterRotationLastFrame = CharacterRotation;
+	CharacterRotation = PlayerCharacter->GetActorRotation();
+	const FRotator Delta = UKismetMathLibrary::NormalizedDeltaRotator(CharacterRotation, CharacterRotationLastFrame);
+	const float Target = Delta.Yaw / DeltaTime;
+	const float Interp = FMath::FInterpTo(Lean, Target, DeltaTime, 2.f);
+	Lean = FMath::Clamp(Interp, -90.f, 90.f);
+
+	AO_Yaw = PlayerCharacter->GetAO_Yaw();
+	AO_Pitch = PlayerCharacter->GetAO_Pitch();
+
+	if (bWeaponEquipped && EquippedWeapon && EquippedWeapon->GetWeaponMesh() && PlayerCharacter->GetMesh())
+	{
+		LeftHandTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("LeftHandSocket"), ERelativeTransformSpace::RTS_World);
+		FVector OutPosition;
+		FRotator OutRotation;
+		PlayerCharacter->GetMesh()->TransformToBoneSpace(FName("hand_r"), LeftHandTransform.GetLocation(), FRotator::ZeroRotator, OutPosition, OutRotation);
+		LeftHandTransform.SetLocation(OutPosition);
+		LeftHandTransform.SetRotation(FQuat(OutRotation));
+
+		if (PlayerCharacter->IsLocallyControlled())
+		{
+			bLocallyControlled = true;
+			FTransform RightHandTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("hand_r"), ERelativeTransformSpace::RTS_World);
+			FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(RightHandTransform.GetLocation(), RightHandTransform.GetLocation() + (RightHandTransform.GetLocation() - PlayerCharacter->GetHitTarget()));
+			RightHandRotation = FMath::RInterpTo(RightHandRotation, LookAtRotation, DeltaTime, 30.f);
+		}
+		
+		// 조준점과 총구 방향 일치 측정용
+		//FTransform MuzzleTipTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("MuzzleFlash"), ERelativeTransformSpace::RTS_World);
+		//FVector MuzzleX(FRotationMatrix(MuzzleTipTransform.GetRotation().Rotator()).GetUnitAxis(EAxis::X));
+
+		//// 총구 끝에서 나가는 직선
+		//DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), MuzzleTipTransform.GetLocation() + MuzzleX * 1000.f, FColor::Red);
+		//// 총구 끝에서 HitTarget까지의 직선
+		//DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), PlayerCharacter->GetHitTarget(), FColor::Blue);
+
+	}
+
+	bUseFABRIK = PlayerCharacter->GetCombatSate() == ECombatState::ECS_Unoccupied;
+	bUseAimOffsets = PlayerCharacter->GetCombatSate() == ECombatState::ECS_Unoccupied;
+	bUseRightHandTransform = PlayerCharacter->GetCombatSate() == ECombatState::ECS_Unoccupied;
 
 	FootIK(DeltaTime);
 }
@@ -168,4 +228,9 @@ TTuple<bool, float, FVector> UPlayerCharacterAnimInstance::FootLineTrace(FName S
 	{
 		return MakeTuple(Result, 999.f, FVector::ZeroVector);
 	}
+}
+
+void UPlayerCharacterAnimInstance::SetPlayerSpeed(float Speed)
+{
+	PlayerCharacter->SetSpeed(Speed);
 }
