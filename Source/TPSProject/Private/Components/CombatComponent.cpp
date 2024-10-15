@@ -32,7 +32,8 @@ void UCombatComponent::BeginPlay()
 	}
 	if (Character->HasAuthority())
 	{
-		InitializeCarriedMag();
+		InitializeMag();
+		
 	}
 }
 
@@ -63,6 +64,7 @@ void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 	DOREPLIFETIME(UCombatComponent, bAimToSprint);
 	DOREPLIFETIME_CONDITION(UCombatComponent, MagAmount, COND_OwnerOnly);
 	DOREPLIFETIME(UCombatComponent, CombatState);
+	DOREPLIFETIME(UCombatComponent, Grenades);
 }
 
 
@@ -168,22 +170,62 @@ void UCombatComponent::AttachActorToLeftHand(AActor* ActorToAttach)
 	}
 }
 
-// 최대 소지 가능 탄창 개수 및 현재 소지 탄창 개수 설정
+// 무기별 최대 탄약과 보급품 획득 시 탄약 획득량을 초기화하는 함수
+void UCombatComponent::InitializeMag()
+{
+	// 각 무기의 최대 탄약(Mag/Ammo) 값을 MaxAmmoMap에 초기화
+	MaxAmmoMap.Emplace(EWeaponType::EWT_AssaultRifle, MaxARMag);
+	MaxAmmoMap.Emplace(EWeaponType::EWT_RocketLauncher, MaxRLAmmo);
+	MaxAmmoMap.Emplace(EWeaponType::EWT_Shotgun, MaxSGAmmo);
+	MaxAmmoMap.Emplace(EWeaponType::EWT_SniperRifle, MaxSRMag);
+	MaxAmmoMap.Emplace(EWeaponType::EWT_GrenadeLauncher, MaxGLAmmo);
+
+	// 각 무기의 보급품 획득 시 탄약(Mag/Ammo) 획득량을 PickupSupplyAmmoMap에 초기화
+	PickupSupplyAmmoMap.Emplace(EWeaponType::EWT_AssaultRifle, PickupSupplyARMag);
+	PickupSupplyAmmoMap.Emplace(EWeaponType::EWT_RocketLauncher, PickupSupplyRLAmmo);
+	PickupSupplyAmmoMap.Emplace(EWeaponType::EWT_Shotgun, PickupSupplySGAmmo);
+	PickupSupplyAmmoMap.Emplace(EWeaponType::EWT_SniperRifle, PickupSupplySRMag);
+	PickupSupplyAmmoMap.Emplace(EWeaponType::EWT_GrenadeLauncher, PickupSupplyGLAmmo);
+}
+
+// 장착한 무기에 따른 최대 소지 가능 탄창 개수 및 현재 소지 탄창 개수 설정
 void UCombatComponent::UpdateCarriedAmmo()
 {
 	if (EquippedWeapon == nullptr) return;
-	if (MagMap.Contains(EquippedWeapon->GetWeaponType()))
+	if (MaxAmmoMap.Contains(EquippedWeapon->GetWeaponType()))
 	{
-		MaxMagAmount = MagMap[EquippedWeapon->GetWeaponType()];
+		MaxMagAmount = MaxAmmoMap[EquippedWeapon->GetWeaponType()];
 		MagAmount = MaxMagAmount;
 	}
 
+	UpdateAmmoHUD();
+}
+
+// 탄 HUD 업데이트
+void UCombatComponent::UpdateAmmoHUD()
+{
 	Controller = Controller == nullptr ? Cast<ATPSProjectPlayerController>(Character->Controller) : Controller;
 	if (Controller)
 	{
-		Controller->SetHUDMaxMagAmount(MaxMagAmount);
-		Controller->SetHUDMagAmount(MagAmount);
+		//Controller->SetHUDMaxMags(MaxMagAmount);
+		Controller->SetHUDMags(MagAmount, MaxMagAmount);
 	}
+}
+
+// 보급품을 획득 시 WeaponType에 맞는 탄약을 획득
+void UCombatComponent::PickupSupply(EWeaponType WeaponType)
+{
+	if (PickupSupplyAmmoMap.Contains(WeaponType))
+	{
+		MagAmount = FMath::Clamp(MagAmount + PickupSupplyAmmoMap[WeaponType], 0, MaxAmmoMap[WeaponType]);
+	}
+
+	UpdateAmmoHUD();
+
+	/*if (MagAmount == 0 && EquippedWeapon && EquippedWeapon->IsEmpty() && EquippedWeapon->GetWeaponType() == WeaponType)
+	{
+		Reload();
+	}*/
 }
 
 // 무기 장착 사운드 재생
@@ -226,7 +268,7 @@ void UCombatComponent::FinishReloading()
 	if (Character->HasAuthority())
 	{
 		MagAmount--;
-		Controller->SetHUDMagAmount(MagAmount);
+		Controller->SetHUDMags(MagAmount, MaxMagAmount);
 
 		EquippedWeapon->ReloadAmmo();
 
@@ -289,17 +331,8 @@ void UCombatComponent::OnRep_MagAmount()
 	Controller = Controller == nullptr ? Cast<ATPSProjectPlayerController>(Character->Controller) : Controller;
 	if (Controller)
 	{
-		Controller->SetHUDMagAmount(MagAmount);
+		Controller->SetHUDMags(MagAmount, MaxMagAmount);
 	}
-}
-
-void UCombatComponent::InitializeCarriedMag()
-{
-	MagMap.Emplace(EWeaponType::EWT_AssaultRifle, MaxARMag);
-	MagMap.Emplace(EWeaponType::EWT_RocketLauncher, MaxRLAmmo);
-	MagMap.Emplace(EWeaponType::EWT_Shotgun, MaxSGAmmo);
-	MagMap.Emplace(EWeaponType::EWT_SniperRifle, MaxSRMag);
-	MagMap.Emplace(EWeaponType::EWT_GrenadeLauncher, MaxGLAmmo);
 }
 
 // 사격 기능
@@ -620,10 +653,15 @@ void UCombatComponent::InterpFOV(float DeltaTime)
 	}
 }
 
-// 수류탄 투척 기능
+/* 
+수류탄 투척 기능
+*/
+
+// 수류탄 투척 애니메이션 실행
 void UCombatComponent::ThrowGrenade()
 {
-	if (CombatState != ECombatState::ECS_Unoccupied) return;
+	if (Grenades == 0) return;
+	if (CombatState != ECombatState::ECS_Unoccupied || EquippedWeapon == nullptr) return;
 
 	CombatState = ECombatState::ECS_ThrowingGrenade;
 	if (Character)
@@ -639,10 +677,17 @@ void UCombatComponent::ThrowGrenade()
 	{
 		ServerThrowGrenade();
 	}
+
+	if (Character && Character->HasAuthority())
+	{
+		Grenades = FMath::Clamp(Grenades - 1, 0, MaxGrenades);
+		UpdateHUDGrenade();
+	}
 }
 
 void UCombatComponent::ServerThrowGrenade_Implementation()
 {
+	if (Grenades == 0) return;
 	CombatState = ECombatState::ECS_ThrowingGrenade;
 	if (Character)
 	{
@@ -652,8 +697,11 @@ void UCombatComponent::ServerThrowGrenade_Implementation()
 		ShowAttachedGrenade(true);
 	}
 
+	Grenades = FMath::Clamp(Grenades - 1, 0, MaxGrenades);
+	UpdateHUDGrenade();
 }
 
+// 부착된 수류탄의 Visibility 설정
 void UCombatComponent::ShowAttachedGrenade(bool bShowGrenade)
 {
 	if (Character && Character->GetAttachedGrenade())
@@ -662,13 +710,66 @@ void UCombatComponent::ShowAttachedGrenade(bool bShowGrenade)
 	}
 }
 
+// 수류탄 투척 종료
 void UCombatComponent::ThrowGrenadeFinished()
 {
 	CombatState = ECombatState::ECS_Unoccupied;
 	AttachActorToRightHand(EquippedWeapon);
 }
 
+// 수류탄 투척 시 투척되는 수류탄 생성
 void UCombatComponent::ThrowGrenadeSpawn()
 {
 	ShowAttachedGrenade(false);
+	if (Character && Character->IsLocallyControlled())
+	{
+		ServerThrowGrenadeSpawn(HitTarget);
+	}
+}
+
+void UCombatComponent::ServerThrowGrenadeSpawn_Implementation(const FVector_NetQuantize& Target)
+{
+	if (Character && GrenadeClass && Character->GetAttachedGrenade())
+	{
+		// 수류탄 생성 위치 = 현재 캐릭터 모델링에 부착되어 있는 수류탄의 위치
+		const FVector StartingLoaction = Character->GetAttachedGrenade()->GetComponentLocation();
+
+		// 타겟 위치
+		FVector ToTarget = Target - StartingLoaction;
+
+		// FActorSpawnParameters 구조체 생성
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = Character;
+		SpawnParams.Instigator = Character;
+
+		UE_LOG(LogTemp, Display, TEXT("Throw"));
+
+		// 스폰
+		UWorld* World = GetWorld();
+		if (World)
+		{
+			World->SpawnActor<AProjectile>(
+				GrenadeClass,
+				StartingLoaction,
+				ToTarget.Rotation(),
+				SpawnParams
+			);
+		}
+	}
+}
+
+void UCombatComponent::OnRep_Grenades()
+{
+	UpdateHUDGrenade();
+
+}
+
+// 수류탄 관련 HUD 업데이트
+void UCombatComponent::UpdateHUDGrenade()
+{
+	Controller = Controller == nullptr ? Cast<ATPSProjectPlayerController>(Character->Controller) : Controller;
+	if (Controller)
+	{
+		Controller->SetHUDGrenades(Grenades, MaxGrenades);
+	}
 }

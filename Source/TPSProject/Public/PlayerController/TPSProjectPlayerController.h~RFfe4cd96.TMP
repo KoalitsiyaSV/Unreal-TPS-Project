@@ -5,7 +5,6 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/ProgressBar.h"
-#include "TPSProject/Public/Weapons/WeaponTypes.h"
 #include "TPSProjectPlayerController.generated.h"
 
 /**
@@ -23,21 +22,10 @@ public:
 	//void UpdateProgressBarAppearance(UProgressBar* ProgressBar, const FLinearColor& FillColor, const FLinearColor& BackgroundColor);
 	void SetHUDMags(int32 Mag, int32 MaxMag);
 	//void SetHUDMaxMags(int32 MaxMag);
-	//void SetWidgetAngleRotationTest();
+	void SetWidgetAngleRotationTest();
 	void SetHUDGrenades(int32 Grenades, int32 MaxGrenades);
 	//void SetHUDMaxGrenades(int32 MaxGrenades);
-	void SetHUDStimpacks(int32 Stimpacks, int32 MaxStimpacks);
-	void SetHUDWeaponImage(EWeaponType WeaponType);
-
 	virtual void Tick(float DeltaTime) override;
-
-	/*
-	* 효과
-	*/
-	UPROPERTY(BlueprintReadWrite)
-	bool bGunAndMagHUDIsBlink;
-
-	bool bGrenadeHUDIsBlink;
 
 protected:
 	virtual void BeginPlay() override;
@@ -52,6 +40,8 @@ private:
 	/*
 	* 색상
 	*/
-	const FLinearColor DefaultColor;
-	const FLinearColor AlertColor;
+	const FLinearColor WhiteColor;
+	const FLinearColor RedColor;
+	const FLinearColor DeepRedColor;
 };
+

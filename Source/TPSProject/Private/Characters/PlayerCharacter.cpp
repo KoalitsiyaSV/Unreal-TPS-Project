@@ -10,12 +10,14 @@
 #include "Net/UnrealNetwork.h"
 #include "TPSProject/Public/Weapons/Weapon.h"
 #include "TPSProject/Public/Components/CombatComponent.h"
+#include "TPSProject/Public/Components/BuffComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "TPSProject/Public/Characters/PlayerCharacterAnimInstance.h"
 #include "TPSProject/TPSProject.h"
 #include "TPSProject/Public/PlayerController/TPSProjectPlayerController.h"
 #include "TPSProject/Public//Weapons/WeaponTypes.h"
+#include "TPSProject/Public/Pickups/Pickup.h"
 
 // Enhanced Input System
 #include "Components/InputComponent.h"
@@ -66,6 +68,9 @@ APlayerCharacter::APlayerCharacter() :
 	Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("Combat"));
 	Combat->SetIsReplicated(true);
 
+	Buff = CreateDefaultSubobject<UBuffComponent>(TEXT("Buff Component"));
+	Buff->SetIsReplicated(true);
+
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
 	GetMesh()->SetCollisionObjectType(ECC_SkeletalMesh);
@@ -104,6 +109,7 @@ void APlayerCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 
 	DOREPLIFETIME_CONDITION(APlayerCharacter, OverlappingWeapon, COND_OwnerOnly);
 	DOREPLIFETIME(APlayerCharacter, CurHealth);
+	DOREPLIFETIME_CONDITION(APlayerCharacter, OverlappingPickup, COND_OwnerOnly);
 }
 
 void APlayerCharacter::PostInitializeComponents()
@@ -113,12 +119,19 @@ void APlayerCharacter::PostInitializeComponents()
 	if (Combat)
 	{
 		Combat->Character = this;
+		//UE_LOG(LogTemp, Warning, TEXT("Combat->Character has been set"));
+	}
+	if (Buff)
+	{
+		Buff->Character = this;
 	}
 }
 
 void APlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	Tags.Add(FName("PlayerCharacter"));
 
 	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
 	{
@@ -146,6 +159,15 @@ void APlayerCharacter::UpdateHUDHealth()
 	if (TPSPlayerController)
 	{
 		TPSPlayerController->SetHUDHealth(CurHealth, MaxHealth);
+	}
+}
+
+void APlayerCharacter::UpdateHUDWeaponImage()
+{
+	TPSPlayerController = TPSPlayerController == nullptr ? Cast<ATPSProjectPlayerController>(Controller) : TPSPlayerController;
+	if (TPSPlayerController)
+	{
+		TPSPlayerController->SetHUDWeaponImage(Combat->EquippedWeapon->GetWeaponType());
 	}
 }
 
@@ -238,6 +260,7 @@ void APlayerCharacter::WeaponEquip()
 		if (HasAuthority())
 		{
 			Combat->EquipWeapon(OverlappingWeapon);
+			UpdateHUDWeaponImage();
 		}
 		else
 		{
@@ -253,6 +276,7 @@ void APlayerCharacter::ServerWeaponEquip_Implementation()
 		if (OverlappingWeapon)
 		{
 			Combat->EquipWeapon(OverlappingWeapon);
+			UpdateHUDWeaponImage();
 		}
 	}
 }
@@ -494,12 +518,50 @@ void APlayerCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)
 	}
 }
 
+// Pickup 아이템 겹침 설정
+void APlayerCharacter::SetOverlappingPickup(APickup* Pickup)
+{
+	// 기존에 겹친 Pickup이 있다면 제거
+	if (OverlappingPickup)
+	{
+		OverlappingPickup->ShowPickupWidget(false);
+		OverlappingPickup->EnableCustomDepth(false);
+	}
+	OverlappingPickup = Pickup;
+
+	// IsLocallyControlled()가 True면 PickupWidget 활성
+	if (IsLocallyControlled())
+	{
+		if (OverlappingPickup)
+		{
+			OverlappingPickup->ShowPickupWidget(true);
+			OverlappingPickup->EnableCustomDepth(true);
+		}
+	}
+}
+
+void APlayerCharacter::OnRep_OverlappingPickup(APickup* LastPickup)
+{
+	if (OverlappingPickup)
+	{
+		OverlappingPickup->ShowPickupWidget(true);
+		OverlappingPickup->EnableCustomDepth(true);
+	}
+
+	if (LastPickup)
+	{
+		LastPickup->ShowPickupWidget(false);
+		LastPickup->EnableCustomDepth(false);
+	}
+}
+
 // Called to bind functionality to input
 void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
 	// Enhanced Input and Action Mapping System Binding
+	// 현재 WeaponEquip과 Pickup이 하나의 액션에 매핑되어 있어 위험할 수 있음 > 기회될 때 수정
 	if (UEnhancedInputComponent* EnhancedInputComponent = CastChecked<UEnhancedInputComponent>(PlayerInputComponent))
 	{
 		EnhancedInputComponent->BindAction(MovementAction, ETriggerEvent::Triggered, this, &APlayerCharacter::Move);
@@ -513,8 +575,10 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed, this, &APlayerCharacter::AimEnd);
 		EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &APlayerCharacter::Reload);
 		EnhancedInputComponent->BindAction(ThrowGrenadeAction, ETriggerEvent::Triggered, this, &APlayerCharacter::ThrowGrenade);
+		EnhancedInputComponent->BindAction(EquipAction, ETriggerEvent::Triggered, this, &APlayerCharacter::Pickup);
 		//EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &APlayerCharacter::FireWeaponStart);
 		//EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &APlayerCharacter::FireWeaponEnd);
+		EnhancedInputComponent->BindAction(UseStimpackAction, ETriggerEvent::Triggered, this, &APlayerCharacter::UseStimpack);
 
 		PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &APlayerCharacter::FireWeaponStart);
 		PlayerInputComponent->BindAction("Fire", IE_Released, this, &APlayerCharacter::FireWeaponEnd);
@@ -617,6 +681,37 @@ void APlayerCharacter::ThrowGrenade()
 	{
 		Combat->ThrowGrenade();
 	}
+}
+
+// Pickup 아이템 줍기
+void APlayerCharacter::Pickup()
+{
+	if (OverlappingPickup)
+	{
+		if (HasAuthority())
+		{
+			OverlappingPickup->Destroy();
+		}
+		else
+		{
+			ServerPickup();
+		}
+	}
+}
+
+void APlayerCharacter::ServerPickup_Implementation()
+{
+	if (OverlappingPickup)
+	{
+		OverlappingPickup->Destroy();
+	}
+}
+
+// 스팀팩 사용
+void APlayerCharacter::UseStimpack()
+{
+	UE_LOG(LogTemp, Warning, TEXT("Stimpack Using"));
+	Buff->Heal();
 }
 
 void APlayerCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatorController, AActor* DamageCauser)

@@ -105,7 +105,7 @@ void AWeapon::SetHUDAmmo()
 
 		if (PlayerOwnerController)
 		{
-			PlayerOwnerController->SetHUDAmmo(Ammo);
+			PlayerOwnerController->SetHUDAmmo(static_cast<float>(Ammo), static_cast<float>(MagCapacity));
 		}
 	}
 }

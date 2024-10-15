@@ -47,6 +47,7 @@ protected:
 	virtual void BeginPlay() override;
 
 	void UpdateHUDHealth();
+	void UpdateHUDWeaponImage();
 
 	/*
 	* ¾×¼Ç
@@ -84,6 +85,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = Input)
 	UInputAction* ThrowGrenadeAction;
 
+	UPROPERTY(EditAnywhere, Category = Input)
+	UInputAction* UseStimpackAction;
+
 	void Turn(float Value);
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
@@ -101,6 +105,9 @@ protected:
 	void PlayHitReactMontage();
 	void Reload();
 	void ThrowGrenade();
+	void Pickup();
+	void UseStimpack();
+
 
 	UFUNCTION()
 	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, class AController* InstigatorController, AActor* DamageCauser);
@@ -123,6 +130,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UCombatComponent* Combat;
+
+	UPROPERTY(VisibleAnywhere)
+	class UBuffComponent* Buff;
 
 	UFUNCTION(Server, Reliable)
 	void ServerWeaponEquip();
@@ -183,6 +193,18 @@ private:
 	UPROPERTY(VisibleAnywhere)
 	UStaticMeshComponent* AttachedGrenade;
 
+	/*
+	Pickup
+	*/
+	UPROPERTY(VisibleAnywhere ,ReplicatedUsing = OnRep_OverlappingPickup)
+	class APickup* OverlappingPickup;
+
+	UFUNCTION()
+	void OnRep_OverlappingPickup(APickup* LastPickup);
+
+	UFUNCTION(Server, Reliable)
+	void ServerPickup();
+
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();
@@ -197,7 +219,16 @@ public:
 	FORCEINLINE UCameraComponent* GetCameraComponent() const { return CameraCompoennt; }
 	FORCEINLINE bool ShouldRotateRootBone() const { return bRotateRootBone; }
 	ECombatState GetCombatSate() const;
+	FORCEINLINE UCombatComponent* GetCombat() const { return Combat; }
 	FORCEINLINE UStaticMeshComponent* GetAttachedGrenade() const {return AttachedGrenade;}
+	void SetOverlappingPickup(APickup* Pickup);
+	FORCEINLINE UBuffComponent* GetBuff() const { return Buff; }
+	FORCEINLINE float GetCurHealth() const { return CurHealth; }
+	FORCEINLINE void SetCurHealth(float health) 
+	{ 
+		CurHealth = FMath::Clamp(health, 0.0f, MaxHealth); 
+		UpdateHUDHealth();
+	}
 
 	// To Use Online Subsystem
 public:

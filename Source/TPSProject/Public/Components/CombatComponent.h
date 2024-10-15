@@ -7,6 +7,7 @@
 #include "TPSProject/Public/HUD/PlayerHUD.h"
 #include "TPSProject/Public/Weapons/WeaponTypes.h"
 #include "TPSProject/public/Types/CombatState.h"
+#include "TPSProject/public/Weapons/Projectile.h"
 #include "CombatComponent.generated.h"
 
 #define TRACELENGTH 100000.f
@@ -35,6 +36,12 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	void ThrowGrenadeSpawn();
+
+	UFUNCTION(Server, Reliable)
+	void ServerThrowGrenadeSpawn(const FVector_NetQuantize& Target);
+
+	// º¸±ÞÇ° È¹µæ
+	void PickupSupply(EWeaponType WeaponType);
 
 protected:
 	virtual void BeginPlay() override;
@@ -75,10 +82,14 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerThrowGrenade();
 
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<class AProjectile> GrenadeClass;
+
 	void DropEquippedWeapon();
 	void AttachActorToRightHand(AActor* ActorToAttach);
 	void AttachActorToLeftHand(AActor* ActorToAttach);
 	void UpdateCarriedAmmo();
+	void UpdateAmmoHUD();
 	void PlayEquipWeaponSound();
 
 	void ReloadEmptyWeapon();
@@ -102,7 +113,7 @@ private:
 	bool bSprintToAim;
 
 	UPROPERTY(Replicated)
-	bool bAimToSprint; 
+	bool bAimToSprint;
 
 	bool bFire;
 
@@ -147,7 +158,8 @@ private:
 	UFUNCTION()
 	void OnRep_MagAmount();
 
-	TMap<EWeaponType, int32> MagMap;
+	// °¢ ¹«±âÀÇ ÃÖ´ë Åº ¼ÒÁö·®
+	TMap<EWeaponType, int32> MaxAmmoMap;
 
 	UPROPERTY(EditAnywhere)
 	int32 MaxARMag = 7;
@@ -164,11 +176,44 @@ private:
 	UPROPERTY(EditAnywhere)
 	int32 MaxGLAmmo = 7;
 
-	void InitializeCarriedMag();
+	// º¸±ÞÇ° È¹µæ ½Ã Åº È¹µæ·®
+	TMap<EWeaponType, int32> PickupSupplyAmmoMap;
+
+	UPROPERTY(EditAnywhere)
+	int32 PickupSupplyARMag = 4;
+
+	UPROPERTY(EditAnywhere)
+	int32 PickupSupplyRLAmmo = 2;
+
+	UPROPERTY(EditAnywhere)
+	int32 PickupSupplySGAmmo = 24;
+
+	UPROPERTY(EditAnywhere)
+	int32 PickupSupplySRMag = 2;
+
+	UPROPERTY(EditAnywhere)
+	int32 PickupSupplyGLAmmo = 4;
+
+	void InitializeMag();
 
 	UPROPERTY(ReplicatedUsing = OnRep_CombatState)
 	ECombatState CombatState;
 
 	UFUNCTION()
 	void OnRep_CombatState();
+
+	UPROPERTY(ReplicatedUsing = OnRep_Grenades)
+	int32 Grenades = 4;
+
+	UFUNCTION()
+	void OnRep_Grenades();
+
+	UPROPERTY(EditAnywhere)
+	int32 MaxGrenades = 4;
+
+	void UpdateHUDGrenade();
+
+public:
+	FORCEINLINE int32 GetGrenades() const { return Grenades; }
+	FORCEINLINE int32 GetMaxGrenades() const { return MaxGrenades; }
 };
