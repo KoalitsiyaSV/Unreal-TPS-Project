@@ -113,7 +113,11 @@ void UPlayerCharacterAnimInstance::FootIK(float DeltaTime)
 		if (FootR.Get<0>() || FootL.Get<0>())
 		{
 			// 땅과 가장 가까운 발을 선택
-			const float Select_Float = UKismetMathLibrary::SelectFloat(FootL.Get<1>(), FootR.Get<1>(), FootL.Get<1>() >= FootR.Get<1>());
+			const float Select_Float = UKismetMathLibrary::SelectFloat(
+				FootL.Get<1>(), 
+				FootR.Get<1>(), 
+				FootL.Get<1>() >= FootR.Get<1>()
+			);
 			// 발의 이동을 보간
 			Displacement = FMath::FInterpTo(Displacement, (Select_Float - 98.f) * -1.f, DeltaTime, IKInterpSpeed);
 

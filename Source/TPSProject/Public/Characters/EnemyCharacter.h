@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Components/SphereComponent.h"
 #include "EnemyCharacter.generated.h"
 
 UENUM(BlueprintType)
@@ -29,7 +30,9 @@ enum class EEnemyState : uint8
 	EES_Chasing UMETA(DisplayName = "Chasing"),
 	EES_Attacking UMETA(DisplayName = "Attacking"),
 	EES_Engaging UMETA(DisplayName = "Engaging"),
-	EES_Sleeping UMETA(DisplayName = "Sleeping")
+	EES_Sleeping UMETA(DisplayName = "Sleeping"),
+
+	EES_NoState UMETA(DisplayName = "NoState")
 };
 
 class UAnimMontage;
@@ -59,8 +62,25 @@ protected:
 	bool InTargetRange(AActor* Target, double Radius);
 	void MoveToTarget(AActor* Target);
 	AActor* SelectPatrolTarget();
+
+	/*
+	* 전투
+	*/
 	void Attack();
 
+	UFUNCTION(BlueprintCallable)
+	void AttackEnd();
+
+	UFUNCTION()
+	virtual void OnComponentBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult); 
+
+	UFUNCTION(BlueprintCallable)
+	void HandCollisionEnabled();
+
+	UFUNCTION(BlueprintCallable)
+	void HandCollisionDisabled();
+
+	TSet<AActor*> OverlappedPlayers;
 
 	UFUNCTION()
 	void PawnDetected(APawn* DetectedPawn);
@@ -77,6 +97,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Enemy Status")
 	float CurHealth = 100.f;
 
+	UPROPERTY(EditAnywhere, Category = "Enemy Status")
+	float AttackDamage = 15.f;
+
 
 	/*
 	* 애니메이션 몽타주 관련 함수
@@ -88,12 +111,19 @@ protected:
 	void PlayMontageSection(UAnimMontage* Montage, const FName& SectionName);
 	void DisableCollision();
 
+	UPROPERTY(EditAnywhere, Category = Combat)
+	float DeathLifeSpawn = 8.f;
+
 	UPROPERTY(BlueprintReadOnly)
 	int32 DeathPose = -1;
 
 	UPROPERTY(BlueprintReadOnly)
+	int32 AttackPose = -1;
+
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
 	EEnemyState EnemyState = EEnemyState::EES_Patrolling;
 
+	void ChangeMoveSpeed(float MoveSpeed);
 
 private:
 	/*
@@ -102,6 +132,13 @@ private:
 	UPROPERTY(VisibleAnywhere)
 	UPawnSensingComponent* PawnSensing;
 
+	UPROPERTY(VisibleAnywhere)
+	USphereComponent* LHandComponent;
+
+	UPROPERTY(VisibleAnywhere)
+	USphereComponent* RHandComponent;
+
+	
 	/*
 	애니메이션 몽타주
 	*/
@@ -163,6 +200,7 @@ private:
 	void SetMoveToTarget(EEnemyState EES, float MoveSpeed, AActor* Target);
 	void ClearPatrolTimer();
 
+
 	/*
 	* 전투
 	*/
@@ -172,10 +210,10 @@ private:
 	FTimerHandle AttackTimer;
 
 	UPROPERTY(EditAnywhere, Category = "Combat")
-	float AttackMin = 0.5f;
+	float AttackMin = 0.1f;
 
 	UPROPERTY(EditAnywhere, Category = "Combat")
-	float AttackMax = 1.4f;
+	float AttackMax = 0.5f;
 
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	float PatrollingSpeed = 30.f;
@@ -184,5 +222,10 @@ private:
 	float ChasingSpeed = 300.f;
 
 public:	
+	bool IsDead();
+	bool IsPatrolling();
+	bool IsChasing();
+	bool IsAttacking();
+	bool IsEngaging();
 
 };

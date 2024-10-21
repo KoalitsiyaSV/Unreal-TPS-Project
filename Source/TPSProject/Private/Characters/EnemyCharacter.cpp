@@ -4,11 +4,14 @@
 #include "Characters/EnemyCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SphereComponent.h"
 #include "TPSProject/TPSProject.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "AIController.h"
 #include "Perception/PawnSensingComponent.h"
+#include "TPSProject/Public/Characters/PlayerCharacter.h"
+#include "Kismet/GameplayStatics.h"
 
 AEnemyCharacter::AEnemyCharacter()
 {
@@ -30,6 +33,15 @@ AEnemyCharacter::AEnemyCharacter()
 	PawnSensing->SightRadius = 1000.f;
 	PawnSensing->SetPeripheralVisionAngle(30.f);
 
+	LHandComponent = CreateDefaultSubobject<USphereComponent>(TEXT("Left Hand Component"));
+	LHandComponent->SetupAttachment(GetMesh(), FName("LeftHand"));
+	LHandComponent->SetSphereRadius(12.f);
+	LHandComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	RHandComponent = CreateDefaultSubobject<USphereComponent>(TEXT("Right Hand Component"));
+	RHandComponent->SetupAttachment(GetMesh(), FName("RightHand"));
+	RHandComponent->SetSphereRadius(12.f);
+	RHandComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 
 void AEnemyCharacter::BeginPlay()
@@ -39,7 +51,11 @@ void AEnemyCharacter::BeginPlay()
 	if (HasAuthority())
 	{
 		OnTakeAnyDamage.AddDynamic(this, &AEnemyCharacter::ReceiveDamage);
+		LHandComponent->OnComponentBeginOverlap.AddDynamic(this, &AEnemyCharacter::OnComponentBeginOverlap);
+		RHandComponent->OnComponentBeginOverlap.AddDynamic(this, &AEnemyCharacter::OnComponentBeginOverlap);
 	}
+
+	CurHealth = MaxHealth;
 
 	EnemyController = Cast<AAIController>(GetController());
 	MoveToTarget(PatrolTarget);
@@ -61,10 +77,15 @@ void AEnemyCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const UD
 	CurHealth = FMath::Clamp(CurHealth - Damage, 0.f, MaxHealth);
 
 	AActor* Attacker = Cast<AActor>(InstigatorController->GetPawn());
-	GetCharacterMovement()->MaxWalkSpeed = 300.f;
+	/*GetCharacterMovement()->MaxWalkSpeed = 300.f;
 	EnemyState = EEnemyState::EES_Chasing;
-	MoveToTarget(Attacker);
+	MoveToTarget(Attacker);*/
 
+	SetMoveToTarget(
+		EEnemyState::EES_Chasing,
+		ChasingSpeed,
+		Attacker
+	);
 
 	// 살아있으면 Hit Reaction 애니메이션 몽타주 재생
 	if (CurHealth > 0.f)
@@ -81,6 +102,12 @@ void AEnemyCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const UD
 // 사망 처리
 void AEnemyCharacter::Death()
 {
+	// EnemyState를 Dead로 변경
+	EnemyState = EEnemyState::EES_Dead;
+
+	// AttackTimer 클리어
+	ClearAttackTimer();
+
 	// Death 애니메이션 몽타주 재생
 	PlayDeathMontage();
 
@@ -88,7 +115,10 @@ void AEnemyCharacter::Death()
 	DisableCollision();
 
 	// 수명 설정
-	SetLifeSpan(6.f);
+	SetLifeSpan(DeathLifeSpawn);
+
+	// 시체 회전 방지
+	GetCharacterMovement()->bOrientRotationToMovement = false;
 }
 
 // Target이 Radius 내에 있는지에 대한 여부 리턴
@@ -152,7 +182,7 @@ void AEnemyCharacter::PawnDetected(APawn* DetectedPawn)
 		ClearPatrolTimer();
 		SetMoveToTarget(
 			EEnemyState::EES_Chasing,
-			300.f,
+			ChasingSpeed,
 			CombatTarget
 		);
 	}
@@ -179,10 +209,65 @@ void AEnemyCharacter::PlayDeathMontage()
 	EnemyState = EEnemyState::EES_Dead;
 }
 
+void AEnemyCharacter::OnComponentBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	const bool bShouldAttack =
+		OtherActor &&
+		OtherActor != this &&
+		OtherActor->ActorHasTag(FName("PlayerCharacter")) &&
+		!OverlappedPlayers.Contains(OtherActor);
+
+	if (bShouldAttack)
+	{
+		APlayerCharacter* OverlappedCharacter = Cast<APlayerCharacter>(OtherActor);
+		if (OverlappedCharacter)
+		{
+			AController* OverlappedCharacterController = OverlappedCharacter->GetController();
+			if (OverlappedCharacterController)
+			{
+				UGameplayStatics::ApplyDamage(
+					OtherActor, 
+					AttackDamage, 
+					OverlappedCharacterController, 
+					this, 
+					UDamageType::StaticClass()
+				);
+
+				OverlappedPlayers.Add(OtherActor);
+			}
+		}
+	}
+}
+
+// 공격 시 손 콜리젼 활성화
+void AEnemyCharacter::HandCollisionEnabled()
+{
+	LHandComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	RHandComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+}
+
+// 공격 종료 시 손 콜리젼 비활성화
+void AEnemyCharacter::HandCollisionDisabled()
+{
+	LHandComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	RHandComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
+
 // Enemy 공격 함수
 void AEnemyCharacter::Attack()
 {
-	PlayAttackMontage();
+	ChangeMoveSpeed(0.f);
+	//EnemyState = EEnemyState::EES_Engaging;
+	AttackPose = PlayAttackMontage();
+}
+
+// Enemy 공격 종료 시
+void AEnemyCharacter::AttackEnd()
+{
+	EnemyState = EEnemyState::EES_NoState;
+	AttackPose = -1;
+	OverlappedPlayers.Empty();
+	CheckCombatTarget();
 }
 
 // Attack 애니메이션 몽타주 재생
@@ -232,7 +317,7 @@ void AEnemyCharacter::LoseInterest()
 void AEnemyCharacter::SetMoveToTarget(EEnemyState EES, float MoveSpeed, AActor* Target)
 {
 	EnemyState = EES;
-	GetCharacterMovement()->MaxWalkSpeed = MoveSpeed;
+	ChangeMoveSpeed(MoveSpeed);
 	MoveToTarget(Target);
 }
 
@@ -240,6 +325,11 @@ void AEnemyCharacter::SetMoveToTarget(EEnemyState EES, float MoveSpeed, AActor* 
 void AEnemyCharacter::ClearPatrolTimer()
 {
 	GetWorldTimerManager().ClearTimer(PatrolTimer);
+}
+
+void AEnemyCharacter::ChangeMoveSpeed(float MoveSpeed)
+{
+	GetCharacterMovement()->MaxWalkSpeed = MoveSpeed;
 }
 
 // AttackTimer 시작
@@ -256,20 +346,53 @@ void AEnemyCharacter::ClearAttackTimer()
 	GetWorldTimerManager().ClearTimer(AttackTimer);
 }
 
+/*
+* EnemyState 상태 여부
+*/
+bool AEnemyCharacter::IsDead()
+{
+	return EnemyState == EEnemyState::EES_Dead;
+}
+
+bool AEnemyCharacter::IsPatrolling()
+{
+	return EnemyState == EEnemyState::EES_Patrolling;
+}
+
+bool AEnemyCharacter::IsChasing()
+{
+	return EnemyState == EEnemyState::EES_Chasing;
+}
+
+bool AEnemyCharacter::IsAttacking()
+{
+	return EnemyState == EEnemyState::EES_Attacking;
+}
+
+bool AEnemyCharacter::IsEngaging()
+{
+	return EnemyState == EEnemyState::EES_Engaging;
+}
+
 void AEnemyCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
 	if (EnemyState == EEnemyState::EES_Dead) return;
 
-	if (EnemyState > EEnemyState::EES_Patrolling)
+	if (!IsAttacking())
 	{
+		//UE_LOG(LogTemp, Display, TEXT("check combat target"));
 		CheckCombatTarget();
 	}
-	else
+	
+	if(IsPatrolling())
 	{
 		ResetPatrolTarget();
 	}
+
+	// 상태에 따른 속도 증감 있으면 좋겠음
+
 }
 
 // 정찰 목표 재설정 함수
@@ -293,14 +416,14 @@ void AEnemyCharacter::CheckCombatTarget()
 	{
 		ClearAttackTimer();
 		LoseInterest();
-		if (EnemyState == EEnemyState::EES_Engaging)
-		{
+		//if (EnemyState == EEnemyState::EES_Engaging)
+		//{
 			SetMoveToTarget(
 				EEnemyState::EES_Patrolling,
-				30.f,
+				PatrollingSpeed,
 				PatrolTarget
 			);
-		}
+		//}
 	}
 	// 타겟이 공격 범위 밖, 추격 범위 내부 > 타겟 추격
 	// CombatTarget이 AttackRadius 내부에 있지 않고 EES_Chasing 상태가 아닐 때 > 추척 재개
@@ -309,9 +432,10 @@ void AEnemyCharacter::CheckCombatTarget()
 		ClearAttackTimer();
 		SetMoveToTarget(
 			EEnemyState::EES_Chasing,
-			300.f,
+			ChasingSpeed,
 			CombatTarget
 		);
+
 	}
 	// 타겟이 공격 범위 내부 > 타겟 공격
 	// CombatTarget이 AttackRadius 내부에 있고 EES_Attacking 상태가 아닐 때 > 공격 
